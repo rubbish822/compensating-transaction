@@ -1,27 +1,8 @@
-# compensating-transaction
-
-When the function execution fails, the function execution can be rolled back, and all previous function executions can be rolled back
-```
-For Example:
-    1. step1 -> step2 -> step3
-        1). if step2 execution error:
-            rollback step1
-        2). if step3 execution error:
-            rollback step2 -> rollback step1
-    2. step1 -> step2 -> step3_1, step3_2, step3_3 -> step4
-        1). if step3_2 execution error:
-            rollback step3_1 -> rollback step2 -> rollback step1
-        2). if step4 execution error:
-            rollback step3_3 -> rollback step3_2 -> rollback step3_1 -> rollback step2 -> rollback step1
-    
-```
-# Use Example:
-```
-from compensating_transaction.transaction import CompensatingTransaction
-
-
 def test_rollback():
+    from compensating_transaction.transaction import CompensatingTransaction
+
     l = []
+
     def add_item(name):
         if name == 'l7':
             raise ValueError('not l7')
@@ -103,4 +84,3 @@ def test_rollback():
         except Exception:
             step6.rollback_all(True)
     assert l == []
-```
