@@ -12,7 +12,7 @@ class RollBack:
 
 class CompensatingTransaction:
     """
-    When the function execution fails, the function execution can be rolled back, 
+    When the function execution fails, the function execution can be rolled back,
     and all previous function executions can be rolled back
     For Example:
         1. step1 -> step2 -> step3
@@ -96,7 +96,7 @@ class CompensatingTransaction:
             if auto_rollback:
                 # After the execution fails, the upper-level operation is automatically rolled back
                 if self.rollback_exe and not isinstance(err, self.rollback_exe):
-                    # Specify the rollback exception type, only the exception 
+                    # Specify the rollback exception type, only the exception
                     # type will perform the rollback operation
                     return RollBack('ignore exe')
                 if not rollback_all:
@@ -124,7 +124,7 @@ class CompensatingTransaction:
         """rollback all
 
         Args:
-            ignore_exe (bool, optional): Whether to ignore the rollback exception, 
+            ignore_exe (bool, optional): Whether to ignore the rollback exception,
                 and continue to roll back other exceptions. Defaults to False.
 
         Raises:
@@ -168,8 +168,10 @@ class CompensatingTransaction:
                     previous_instance.rollback_func
                     and previous_instance._is_success is True
                 ):
-                    hash_key = f'{previous_instance.rollback_func}:{previous_instance}:'
-                            f'{previous_instance.rollback_args}:{previous_instance.rollback_kwargs}'
+                    hash_key = (
+                        f'{previous_instance.rollback_func}:{previous_instance}:'
+                        + f'{previous_instance.rollback_args}:{previous_instance.rollback_kwargs}'
+                    )
                     hash_key = hashlib.md5(hash_key.encode()).hexdigest()
                     if hash_key not in hash_set:
                         all_rollback.append(
@@ -191,7 +193,7 @@ class CompensatingTransaction:
 
     def rollback(self):
         """rollback
-        1. If the current run_func function is successfully executed, the rollback operation is performed, 
+        1. If the current run_func function is successfully executed, the rollback operation is performed,
         otherwise it is not executed.
         2. If the current run_func function is successfully executed, execute the upper-level rollback operation,
           otherwise it will not execute.
@@ -201,7 +203,7 @@ class CompensatingTransaction:
         """
         res = True
         if self.rollback_func and self._is_success is True:
-            # The rollback of the current operation can only be performed after the current operation is 
+            # The rollback of the current operation can only be performed after the current operation is
             # successfully executed
             self.rollback_func(*self.rollback_args, **self.rollback_kwargs)
         if self.previous:

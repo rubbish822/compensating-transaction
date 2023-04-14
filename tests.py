@@ -79,8 +79,12 @@ def test_rollback():
             previous=step5 if not last_step else last_step,
         )
         last_step = step6
+        # try:
+        #     step6.run()
+        # except Exception:
+        #     step6.rollback_all(True)
         try:
-            step6.run()
+            step6.run(auto_rollback=True, rollback_all=True)
         except Exception:
-            step6.rollback_all(True)
+            pass
     assert l == []
