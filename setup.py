@@ -7,7 +7,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="compensating-transaction",
-    version="0.0.2",
+    version="0.0.3",
     keywords=("pip", "compensating-transaction", "atomicity"),
     description="compensating transaction",
     long_description="When the function execution fails, the function execution can be rolled back, and all previous function executions can be rolled back",

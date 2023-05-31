@@ -1,13 +1,10 @@
-import hashlib
+import logging
 import typing
-from dataclasses import dataclass
 
 from . import exceptions
 
 
-@dataclass
-class RollBack:
-    value: typing.Optional[typing.Any] = None
+logger = logging.getLogger(__name__)
 
 
 class CompensatingTransaction:
@@ -25,33 +22,15 @@ class CompensatingTransaction:
                 rollback step3_1 -> rollback step2 -> rollback step1
             2). if step4 execution error:
                 rollback step3_3 -> rollback step3_2 -> rollback step3_1 -> rollback step2 -> rollback step1
-    ```
-    def add_item(name):
-        if name == 'l1':
-            raise ValueError()
-        l.append(name)
-
-    def sub_item(name):
-        l.remove(name)
-
-    p1 = CompensatingTransaction(run_func=add_item, run_args=('l1',), rollback_func=sub_item, rollback_args=('l1', ))
-    p2 = CompensatingTransaction(run_func=add_item, run_args=('l2',), rollback_func=sub_item, rollback_args=('l2', ), previous=p1)
-    p3 = CompensatingTransaction(run_func=add_item, run_args=('l3',), rollback_func=sub_item, rollback_args=('l3', ), previous=[p1,p2])
-    try:
-        p1.run()
-    except Exception:
-        pass
-    p1.rollback()
-    p2.run(auto_rollback=False)  # l = ['l2']
-    p2.rollback()  # l = []
-    try:
-        p3.run()
-    except Exception:
-        p3.rollback_all(ignore_exe=True)
-    ```
+    
     """
+    def __init__(self, rollback_raise_err: bool = False):
+        self.rollback_raise_err = rollback_raise_err
+        self.transactions = []
+        self.submit_transactions = []
+        self.errors = []
 
-    def __init__(
+    def add(
         self,
         run_func: callable,
         run_args: tuple = (),
@@ -60,10 +39,9 @@ class CompensatingTransaction:
         rollback_args: tuple = (),
         rollback_kwargs: dict = None,
         rollback_exe: typing.Optional[Exception] = None,
-        previous: typing.Optional[list] = None,
     ):
         """
-
+        add transaction func
         Args:
             run_func (callable): execute function
             run_args (tuple, optional): _description_. Defaults to ().
@@ -74,139 +52,74 @@ class CompensatingTransaction:
             rollback_exe (typing.Optional[Exception], optional): The specified rollback exception. Defaults to None.
             previous (typing.Optional[list], optional): previous node. Defaults to None.
         """
-        self.run_func = run_func
-        self.run_args = run_args
-        self.run_kwargs = run_kwargs
-        self.rollback_func = rollback_func
-        self.rollback_args = rollback_args
-        self.rollback_kwargs = rollback_kwargs
-        self.rollback_exe = rollback_exe
-        self.previous = previous
-        self._is_success = None
-        if self.run_kwargs is None:
-            self.run_kwargs = {}
-        if self.rollback_kwargs is None:
-            self.rollback_kwargs = {}
+        transaction_instance = {
+            'run_func': run_func,
+            'run_args': run_args,
+            'run_kwargs': run_kwargs or {},
+            'rollback_func': rollback_func,
+            'rollback_args': rollback_args,
+            'rollback_kwargs': rollback_kwargs or {},
+            'rollback_exe': rollback_exe,
+        }
+        self.transactions.append(transaction_instance)
 
-    def run(self, auto_rollback: bool = False, rollback_all: bool = False):
-        try:
-            res = self.run_func(*self.run_args, **self.run_kwargs)
-        except Exception as err:
-            self._is_success = False
-            if auto_rollback:
-                # After the execution fails, the upper-level operation is automatically rolled back
-                if self.rollback_exe and not isinstance(err, self.rollback_exe):
-                    # Specify the rollback exception type, only the exception
-                    # type will perform the rollback operation
-                    return RollBack('ignore exe')
-                if not rollback_all:
-                    self.previous_rollback()
-                else:
-                    self.rollback_all()
-            raise err
-        else:
-            self._is_success = True
-            return res
-
-    def previous_rollback(self):
-        """
-        previous rollback
-        """
-        if self.previous:
-            if isinstance(self.previous, list):
-                for previous in self.previous:
-                    previous.rollback()
-            elif isinstance(self.previous, self.__class__):
-                self.previous.rollback()
-        return True
-
-    def rollback_all(self, ignore_exe: bool = False) -> list:
-        """rollback all
+    def run(self, transaction_instance: dict):
+        """run transaction
 
         Args:
-            ignore_exe (bool, optional): Whether to ignore the rollback exception,
-                and continue to roll back other exceptions. Defaults to False.
-
-        Raises:
-            err: _description_
-
-        Returns:
-            list: [Rollback result, Rollback exception details]
+            transaction_instance (dict): _description_
         """
-        if self.rollback_func and self._is_success is True:
-            self.rollback_func(*self.rollback_args, **self.rollback_kwargs)
-        all_previous_rollback = self.get_all_rollback()
-        rollback_exe = []
-        for previous_func_dict in all_previous_rollback:
-            rollback_func = previous_func_dict['rollback_func']
-            args = previous_func_dict['args']
-            kwargs = previous_func_dict['kwargs']
+        run_func = transaction_instance['run_func']
+        run_args = transaction_instance['run_args']
+        run_kwargs = transaction_instance['run_kwargs']
+        return run_func(*run_args, **run_kwargs)
+
+    def rollback(self, transaction_instance: dict):
+        """rollback transaction
+
+        Args:
+            transaction_instance (dict): _description_
+        """
+        rollback_func = transaction_instance['rollback_func']
+        rollback_args = transaction_instance['rollback_args']
+        rollback_kwargs = transaction_instance['rollback_kwargs']
+        return rollback_func(*rollback_args, **rollback_kwargs)
+
+    def transaction_rollback(self):
+        """
+        Roll back all committed transactions
+        """
+        for transaction_instance in reversed(self.submit_transactions):
             try:
-                rollback_func(*args, **kwargs)
+                self.rollback(transaction_instance)
             except Exception as err:
-                if not ignore_exe:
-                    raise exceptions.RollBackError(
-                        str(err), rollback_func, args, kwargs
-                    ) from err
-                else:
-                    rollback_exe.append([previous_func_dict, str(err)])
-        return not bool(rollback_exe), rollback_exe
+                logger.error(
+                    '[transaction_rollback] %s, Exception: %s', transaction_instance, err
+                )
+                self.errors.append(
+                    f'[transaction_rollback] {transaction_instance}, Exception: {err}'
+                )
+                if self.rollback_raise_err:
+                    raise err from err
 
-    def get_all_rollback(self) -> list:
+    def submit(self) -> typing.Optional[exceptions.TransactionError]:
         """
-        Traverse all superior rollback functions
+        submit transaction
         """
-        all_rollback = []
-        hash_set = set()
-        all_previous_instance = self.previous
-        while all_previous_instance:
-            if isinstance(all_previous_instance, self.__class__):
-                all_previous_instance = [all_previous_instance]
-            _all_previous_instance = []
-            for previous_instance in all_previous_instance:
-                if (
-                    previous_instance.rollback_func
-                    and previous_instance._is_success is True
-                ):
-                    hash_key = (
-                        f'{previous_instance.rollback_func}:{previous_instance}:'
-                        + f'{previous_instance.rollback_args}:{previous_instance.rollback_kwargs}'
-                    )
-                    hash_key = hashlib.md5(hash_key.encode()).hexdigest()
-                    if hash_key not in hash_set:
-                        all_rollback.append(
-                            {
-                                'rollback_func': previous_instance.rollback_func,
-                                'self': previous_instance,
-                                'args': previous_instance.rollback_args,
-                                'kwargs': previous_instance.rollback_kwargs,
-                            }
-                        )
-                        hash_set.add(hash_key)
-                if previous_instance.previous:
-                    if isinstance(previous_instance.previous, list):
-                        _all_previous_instance.extend(previous_instance.previous)
-                    else:
-                        _all_previous_instance.append(previous_instance.previous)
-            all_previous_instance = _all_previous_instance
-        return all_rollback
-
-    def rollback(self):
-        """rollback
-        1. If the current run_func function is successfully executed, the rollback operation is performed,
-        otherwise it is not executed.
-        2. If the current run_func function is successfully executed, execute the upper-level rollback operation,
-          otherwise it will not execute.
-
-        Returns:
-            _type_: RollBack(True) rollback result
-        """
-        res = True
-        if self.rollback_func and self._is_success is True:
-            # The rollback of the current operation can only be performed after the current operation is
-            # successfully executed
-            self.rollback_func(*self.rollback_args, **self.rollback_kwargs)
-        if self.previous:
-            # When performing a rollback, automatically perform a superior rollback
-            self.previous_rollback()
-        return RollBack(res)
+        self.submit_transactions = []
+        for transaction_instance in self.transactions:
+            rollback_exe = transaction_instance['rollback_exe']
+            try:
+                self.run(transaction_instance)
+            except Exception as err:
+                if rollback_exe and isinstance(err, rollback_exe):
+                    # 指定不回滚异常
+                    continue
+                self.errors.append(f'[submit] {transaction_instance}, err: {err}')
+                self.transaction_rollback()
+                break
+            else:
+                self.submit_transactions.append(transaction_instance)
+                logger.info('[submit] %s', transaction_instance)
+        if self.errors:
+            return exceptions.TransactionError(self.errors)
